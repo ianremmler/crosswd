@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"unicode"
 
 	"github.com/ianremmler/crosswd"
@@ -29,14 +30,14 @@ var (
 	loc         crosswd.Coord
 	dir         = crosswd.Right
 	count       = 0
-	normalStyle = style{termbox.ColorWhite, termbox.ColorBlack}
+	normalStyle = style{termbox.ColorBlack, termbox.ColorWhite}
 	selectStyle = style{termbox.ColorWhite, termbox.ColorBlue}
 	editStyle   = style{termbox.ColorWhite, termbox.ColorRed}
 	solvedStyle = style{termbox.ColorWhite, termbox.ColorGreen}
 )
 
 func draw() {
-	termbox.Clear(normalStyle.fg, normalStyle.bg)
+	termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
 	start, end := cw.WordExtents(loc, dir)
 	wordStyle := selectStyle
 	if mode == editMode {
@@ -47,40 +48,71 @@ func draw() {
 		baseStyle = solvedStyle
 	}
 	sz := cw.Size()
+
 	for y := 0; y < sz.Y; y++ {
 		for x := 0; x < sz.X; x++ {
-			c, ok := cw.At(crosswd.Coord{x, y})
-			if !ok {
-				c = crosswd.Blank
+			c, _ := cw.At(crosswd.Coord{x, y})
+			sty := baseStyle
+			if x >= start.X && x <= end.X && y >= start.Y && y <= end.Y {
+				sty = wordStyle
 			}
 			switch c {
 			case crosswd.Empty:
 				c = '_'
 			case crosswd.Blank:
-				c = '#'
+				c = ' '
+				sty.fg, sty.bg = sty.bg, sty.fg
 			}
-			sty := baseStyle
-			if x >= start.X && x <= end.X && y >= start.Y && y <= end.Y {
-				sty = wordStyle
-			}
-			termbox.SetCell(x, y, rune(c), sty.fg, sty.bg)
+			termbox.SetCell(x+1, y+1, rune(c), sty.fg, sty.bg)
 		}
 	}
+
+	for y, s := range []string{cw.Title, cw.Author, cw.Copyright} {
+		for x, r := range s {
+			termbox.SetCell(sz.X+x+3, y+1, r, termbox.ColorDefault, termbox.ColorDefault)
+		}
+	}
+
 	id := cw.WordId(loc, dir)
 	clue := cw.Clue(loc, dir)
 	dirc := 'A'
 	if dir == crosswd.Down {
 		dirc = 'D'
 	}
-	for x, r := range fmt.Sprintf("%d%c: %s", id, dirc, clue) {
-		termbox.SetCell(x, sz.Y+1, r, normalStyle.fg, normalStyle.bg)
+	wordLen := end.X - start.X + 1
+	if dir == crosswd.Down {
+		wordLen = end.Y - start.Y + 1
+	}
+	for x, r := range fmt.Sprintf("%d%c(%d): %s", id, dirc, wordLen, clue) {
+		termbox.SetCell(sz.X+x+3, sz.Y, r, termbox.ColorDefault, termbox.ColorDefault)
 	}
 	if count > 0 {
 		for x, r := range strconv.Itoa(count) {
-			termbox.SetCell(sz.X+1+x, 0, r, normalStyle.fg, normalStyle.bg)
+			termbox.SetCell(sz.X+x+3, sz.Y-2, r, termbox.ColorDefault, termbox.ColorDefault)
 		}
 	}
-	termbox.SetCursor(loc.X, loc.Y)
+
+	width, _ := termbox.Size()
+	var notes []string
+	for _, note := range cw.Notes {
+		for _, para := range strings.Split(note, "\n") {
+			notes = append(notes, wrapText(strings.TrimSpace(para), width-2))
+		}
+	}
+	noteText := strings.Join(notes, "\n")
+
+	x, y := 0, 0
+	for _, r := range noteText {
+		if r == '\n' {
+			x = 0
+			y++
+		} else {
+			termbox.SetCell(x+1, sz.Y+y+2, r, termbox.ColorDefault, termbox.ColorDefault)
+			x++
+		}
+	}
+
+	termbox.SetCursor(loc.X+1, loc.Y+1)
 	termbox.Flush()
 }
 
@@ -215,7 +247,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer termbox.Close()
-
 	cw = crosswd.New()
 	if err := cw.Read(file); err != nil {
 		log.Fatal(err)
@@ -223,4 +254,23 @@ func main() {
 	cw.Setup()
 	loc = cw.NextCell(crosswd.Coord{-1, 0}, dir, true)
 	run()
+}
+
+func wrapText(text string, width int) string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return ""
+	}
+	out := words[0]
+	left := width - len(out)
+	for _, word := range words[1:] {
+		if len(word)+1 > left {
+			out += "\n" + word
+			left = width - len(word)
+		} else {
+			out += " " + word
+			left -= 1 + len(word)
+		}
+	}
+	return out
 }

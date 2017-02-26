@@ -7,6 +7,8 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
+
+	"golang.org/x/text/encoding/charmap"
 )
 
 const (
@@ -169,10 +171,14 @@ func (p *Puzzle) Read(in io.Reader) error {
 	if err != nil {
 		return err
 	}
+	rest, err = charmap.ISO8859_1.NewDecoder().Bytes(rest)
+	if err != nil {
+		return err
+	}
 	fields := make([]string, 4+p.Header.NumClues)
 	copy(fields, strings.Split(string(rest), "\x00"))
-	p.Author = fields[0]
-	p.Title = fields[1]
+	p.Title = fields[0]
+	p.Author = fields[1]
 	p.Copyright = fields[2]
 	p.Clues = fields[3 : 3+p.Header.NumClues]
 	p.Notes = fields[3+p.Header.NumClues:]
