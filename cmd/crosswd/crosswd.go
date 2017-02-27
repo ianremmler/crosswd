@@ -30,6 +30,7 @@ var (
 	loc         crosswd.Coord
 	dir         = crosswd.Right
 	count       = 0
+	filename    string
 	normalStyle = style{termbox.ColorBlack, termbox.ColorWhite}
 	selectStyle = style{termbox.ColorWhite, termbox.ColorBlue}
 	editStyle   = style{termbox.ColorWhite, termbox.ColorRed}
@@ -162,6 +163,8 @@ func handleKeyEvent(evt *termbox.Event) bool {
 			loc = cw.NextWord(loc, dir)
 		case 'W':
 			loc = cw.NextWord(loc, dir.Opposite())
+		case 'Z':
+			save()
 		}
 	case editMode:
 		switch evt.Key {
@@ -236,13 +239,14 @@ func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("usage: crosswd crossword.puz")
 	}
-	file, err := os.Open(os.Args[1])
+	filename = os.Args[1]
+	in, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer file.Close()
+	defer in.Close()
 	cw = crosswd.New()
-	if err := cw.Read(file); err != nil {
+	if err := cw.Read(in); err != nil {
 		log.Fatal(err)
 	}
 	cw.Setup()
@@ -253,6 +257,7 @@ func main() {
 	}
 	defer termbox.Close()
 	run()
+	save()
 }
 
 func wrapText(text string, width int) string {
@@ -272,4 +277,13 @@ func wrapText(text string, width int) string {
 		}
 	}
 	return out
+}
+
+func save() error {
+	out, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return cw.Write(out)
 }

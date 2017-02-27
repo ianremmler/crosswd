@@ -145,6 +145,7 @@ type Puzzle struct {
 	Copyright string
 	Clues     []string
 	Notes     string
+	Extra     []byte
 
 	cellID  map[Coord]int
 	idCell  map[int]Coord
@@ -162,49 +163,82 @@ func New() *Puzzle {
 	}
 }
 
-func (p *Puzzle) encodeString(str string) string {
-	s, err := p.enc.String(str)
-	if err != nil {
-		return ""
-	}
-	return s
-}
-
 // Read reads crossword data in .puz format
-func (p *Puzzle) Read(in io.Reader) error {
-	if err := binary.Read(in, binary.LittleEndian, &p.Header); err != nil {
+func (p *Puzzle) Read(r io.Reader) error {
+	if err := binary.Read(r, binary.LittleEndian, &p.Header); err != nil {
 		return err
 	}
 	if string(p.Header.Magic[:]) != Magic {
 		return errors.New("invalid magic")
 	}
-	w, h := int(p.Header.Width), int(p.Header.Height)
-	p.solution = NewGrid(w, h)
-	if _, err := io.ReadFull(in, p.solution.elts); err != nil {
+	width, height := int(p.Header.Width), int(p.Header.Height)
+	p.solution = NewGrid(width, height)
+	if _, err := io.ReadFull(r, p.solution.elts); err != nil {
 		return err
 	}
-	p.Grid = NewGrid(w, h)
-	if _, err := io.ReadFull(in, p.elts); err != nil {
+	p.Grid = NewGrid(width, height)
+	if _, err := io.ReadFull(r, p.elts); err != nil {
 		return err
 	}
-	rest, err := ioutil.ReadAll(in)
+	rest, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
-	rest, err = charmap.ISO8859_1.NewDecoder().Bytes(rest)
-	if err != nil {
-		return err
+	dec := charmap.ISO8859_1.NewDecoder()
+	inFields := strings.SplitN(string(rest), "\x00", int(5+p.Header.NumClues))
+	outFields := make([]string, 4+p.Header.NumClues)
+	copy(outFields, inFields)
+	p.Title, _ = dec.String(outFields[0])
+	p.Author, _ = dec.String(outFields[1])
+	p.Copyright, _ = dec.String(outFields[2])
+	for i := 0; i < int(p.Header.NumClues); i++ {
+		clue, _ := dec.String(outFields[3+i])
+		p.Clues = append(p.Clues, clue)
 	}
-	fields := make([]string, 4+p.Header.NumClues)
-	copy(fields, strings.Split(string(rest), "\x00"))
-	p.Title = fields[0]
-	p.Author = fields[1]
-	p.Copyright = fields[2]
-	p.Clues = fields[3 : 3+p.Header.NumClues]
-	p.Notes = fields[3+p.Header.NumClues]
-
+	p.Notes, _ = dec.String(outFields[3+p.Header.NumClues])
+	if len(inFields) > len(outFields) {
+		p.Extra = []byte(inFields[len(inFields)-1])
+	}
 	if p.Cksum() != p.Header.Cksum {
 		return errors.New("checksum does not match")
+	}
+	return nil
+}
+
+// Write writes crossword data in .puz format
+func (p *Puzzle) Write(w io.Writer) error {
+	p.Header.BaseCksum = p.BaseCksum()
+	p.Header.MaskedCksum = p.MaskedCksum()
+	p.Header.Cksum = p.Cksum()
+
+	if err := binary.Write(w, binary.LittleEndian, p.Header); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.solution.elts); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.elts); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.encode(p.Title + "\x00")); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.encode(p.Author + "\x00")); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.encode(p.Copyright + "\x00")); err != nil {
+		return err
+	}
+	for _, clue := range p.Clues {
+		if _, err := w.Write(p.encode(clue + "\x00")); err != nil {
+			return err
+		}
+	}
+	if _, err := w.Write(p.encode(p.Notes + "\x00")); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.Extra); err != nil {
+		return err
 	}
 	return nil
 }
@@ -345,13 +379,13 @@ func (p *Puzzle) BaseCksum() uint16 {
 
 // TextCksum calculates checksum of text fields
 func (p *Puzzle) TextCksum(cksum uint16) uint16 {
-	cksum = calcCksum([]byte(p.encodeString(p.Title+"\x00")), cksum)
-	cksum = calcCksum([]byte(p.encodeString(p.Author+"\x00")), cksum)
-	cksum = calcCksum([]byte(p.encodeString(p.Copyright+"\x00")), cksum)
+	cksum = calcCksum(p.encode(p.Title+"\x00"), cksum)
+	cksum = calcCksum(p.encode(p.Author+"\x00"), cksum)
+	cksum = calcCksum(p.encode(p.Copyright+"\x00"), cksum)
 	for _, clue := range p.Clues {
-		cksum = calcCksum([]byte(p.encodeString(clue)), cksum)
+		cksum = calcCksum(p.encode(clue), cksum)
 	}
-	cksum = calcCksum([]byte(p.encodeString(p.Notes+"\x00")), cksum)
+	cksum = calcCksum(p.encode(p.Notes+"\x00"), cksum)
 	return cksum
 }
 
@@ -379,6 +413,14 @@ func (p *Puzzle) MaskedCksum() [8]byte {
 		cksum[i+4] = byte(cs>>8) ^ CksumMagic[i+4]
 	}
 	return cksum
+}
+
+func (p *Puzzle) encode(str string) []byte {
+	s, err := p.enc.String(str)
+	if err != nil {
+		return []byte{}
+	}
+	return []byte(s)
 }
 
 func calcCksum(data []byte, cksum uint16) uint16 {
