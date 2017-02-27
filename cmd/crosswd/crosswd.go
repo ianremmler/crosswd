@@ -73,7 +73,7 @@ func draw() {
 		}
 	}
 
-	id := cw.WordId(loc, dir)
+	id := cw.WordID(loc, dir)
 	clue := cw.Clue(loc, dir)
 	dirc := 'A'
 	if dir == crosswd.Down {
@@ -94,10 +94,8 @@ func draw() {
 
 	width, _ := termbox.Size()
 	var notes []string
-	for _, note := range cw.Notes {
-		for _, para := range strings.Split(note, "\n") {
-			notes = append(notes, wrapText(strings.TrimSpace(para), width-2))
-		}
+	for _, para := range strings.Split(cw.Notes, "\n") {
+		notes = append(notes, wrapText(strings.TrimSpace(para), width-2))
 	}
 	noteText := strings.Join(notes, "\n")
 
@@ -243,16 +241,17 @@ func main() {
 		log.Fatal(err)
 	}
 	defer file.Close()
-	if err := termbox.Init(); err != nil {
-		log.Fatal(err)
-	}
-	defer termbox.Close()
 	cw = crosswd.New()
 	if err := cw.Read(file); err != nil {
 		log.Fatal(err)
 	}
 	cw.Setup()
 	loc = cw.NextCell(crosswd.Coord{-1, 0}, dir, true)
+
+	if err := termbox.Init(); err != nil {
+		log.Fatal(err)
+	}
+	defer termbox.Close()
 	run()
 }
 

@@ -8,17 +8,22 @@ import (
 	"io/ioutil"
 	"strings"
 
+	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
 )
 
+// .puz constants
 const (
-	Magic = "ACROSS&DOWN\x00"
-	Blank = '.'
-	Empty = '-'
+	Magic      = "ACROSS&DOWN\x00"
+	CksumMagic = "ICHEATED"
+	Blank      = '.'
+	Empty      = '-'
 )
 
+// Direction is a relative direction.
 type Direction int
 
+// Direction enumeration
 const (
 	NoDir Direction = iota
 	Up
@@ -27,6 +32,7 @@ const (
 	Right
 )
 
+// Opposite returns the opposite direction of d.
 func (d Direction) Opposite() Direction {
 	switch d {
 	case Left:
@@ -41,6 +47,7 @@ func (d Direction) Opposite() Direction {
 	return NoDir
 }
 
+// Delta returns a unit vector in the direction d.
 func (d Direction) Delta() Coord {
 	switch d {
 	case Up:
@@ -55,29 +62,33 @@ func (d Direction) Delta() Coord {
 	return Coord{}
 }
 
+// Coord represents a 2D coordinate.
 type Coord struct{ X, Y int }
 
+// Grid represents a 2D array stored contiguously.
 type Grid struct {
 	elts  []byte
 	cells [][]byte
 }
 
-func NewGrid(w, h int) *Grid {
-	if w < 1 {
-		w = 1
+// NewGrid returns a new Grid of size width x height.
+func NewGrid(width, height int) *Grid {
+	if width < 1 {
+		width = 1
 	}
-	if h < 1 {
-		h = 1
+	if height < 1 {
+		height = 1
 	}
 	g := &Grid{}
-	g.elts = make([]byte, w*h)
-	g.cells = make([][]byte, h)
+	g.elts = make([]byte, width*height)
+	g.cells = make([][]byte, height)
 	for i := range g.cells {
-		g.cells[i] = g.elts[i*w : (i+1)*w : (i+1)*w]
+		g.cells[i] = g.elts[i*width : (i+1)*width : (i+1)*width]
 	}
 	return g
 }
 
+// Size returns the grid dimensions.
 func (g *Grid) Size() Coord {
 	if len(g.cells) == 0 {
 		return Coord{}
@@ -85,10 +96,12 @@ func (g *Grid) Size() Coord {
 	return Coord{len(g.cells), len(g.cells[0])}
 }
 
+// Valid returns whether a point is within the grid range.
 func (g *Grid) Valid(p Coord) bool {
 	return p.Y >= 0 && p.Y < len(g.cells) && p.X >= 0 && p.X < len(g.cells[0])
 }
 
+// At returns the value at p if valid and whether p is valid.
 func (g *Grid) At(p Coord) (byte, bool) {
 	if !g.Valid(p) {
 		return 0, false
@@ -96,6 +109,7 @@ func (g *Grid) At(p Coord) (byte, bool) {
 	return g.cells[p.Y][p.X], true
 }
 
+// Set stores c at point p if valid and returns whether g was updated
 func (g *Grid) Set(p Coord, c byte) bool {
 	if !g.Valid(p) {
 		return false
@@ -104,30 +118,24 @@ func (g *Grid) Set(p Coord, c byte) bool {
 	return true
 }
 
+// Header holds .puz file header data
 type Header struct {
-	Cksum        uint16
-	Magic        [len(Magic)]byte
-	BaseCksum    uint16
-	MaskedCksums [4]uint16
-	Version      [4]byte
-	Unused       [2]byte
-	Unknown      [2]byte
-	Reserved     [12]byte
-	Width        uint8
-	Height       uint8
-	NumClues     uint16
-	Bitmask1     [2]byte // normally set to 0x0001
-	Bitmask2     [2]byte // 0x0004 = scrambled
+	Cksum       uint16
+	Magic       [len(Magic)]byte
+	BaseCksum   uint16
+	MaskedCksum [8]byte
+	Version     [4]byte
+	Unused      [2]byte
+	Unknown     [2]byte
+	Reserved    [12]byte
+	Width       uint8
+	Height      uint8
+	NumClues    uint16
+	BitMask1    [2]byte // normally set to 0x0001
+	BitMask2    [2]byte // 0x0004 = scrambled
 }
 
-func updateCksum(data []byte, cksum uint16) uint16 {
-	for _, b := range data {
-		cksum = (cksum >> 1) | ((cksum & 1) << 15)
-		cksum += uint16(b)
-	}
-	return cksum
-}
-
+// Puzzle holds the state of a crossword puzzle
 type Puzzle struct {
 	Header Header
 	*Grid
@@ -136,21 +144,33 @@ type Puzzle struct {
 	Author    string
 	Copyright string
 	Clues     []string
-	Notes     []string
+	Notes     string
 
-	cellId  map[Coord]int
+	cellID  map[Coord]int
 	idCell  map[int]Coord
 	clueNum map[Direction]map[int]int
+	enc     *encoding.Encoder
 }
 
+// New creates a Puzzle instance
 func New() *Puzzle {
 	return &Puzzle{
-		cellId:  map[Coord]int{},
+		cellID:  map[Coord]int{},
 		idCell:  map[int]Coord{},
 		clueNum: map[Direction]map[int]int{Right: {}, Down: {}},
+		enc:     charmap.ISO8859_1.NewEncoder(),
 	}
 }
 
+func (p *Puzzle) encodeString(str string) string {
+	s, err := p.enc.String(str)
+	if err != nil {
+		return ""
+	}
+	return s
+}
+
+// Read reads crossword data in .puz format
 func (p *Puzzle) Read(in io.Reader) error {
 	if err := binary.Read(in, binary.LittleEndian, &p.Header); err != nil {
 		return err
@@ -181,10 +201,17 @@ func (p *Puzzle) Read(in io.Reader) error {
 	p.Author = fields[1]
 	p.Copyright = fields[2]
 	p.Clues = fields[3 : 3+p.Header.NumClues]
-	p.Notes = fields[3+p.Header.NumClues:]
+	p.Notes = fields[3+p.Header.NumClues]
+
+	if p.Cksum() != p.Header.Cksum {
+		return errors.New("checksum does not match")
+	}
 	return nil
 }
 
+// NextCell returns the location one square from pos in dir direction.  If
+// doSkip is true, skip blank squares and wrap around the grid, otherwise, pos
+// is returned unmodified.
 func (p *Puzzle) NextCell(pos Coord, dir Direction, doSkip bool) Coord {
 	dlt := dir.Delta()
 	if dlt == (Coord{}) {
@@ -216,6 +243,8 @@ func (p *Puzzle) NextCell(pos Coord, dir Direction, doSkip bool) Coord {
 	}
 }
 
+// WordExtent returns the position of the last cell of the word that includes
+// pos in direction dir.
 func (p *Puzzle) WordExtent(pos Coord, dir Direction) Coord {
 	for {
 		end := p.NextCell(pos, dir, false)
@@ -226,6 +255,8 @@ func (p *Puzzle) WordExtent(pos Coord, dir Direction) Coord {
 	}
 }
 
+// WordExtents returns the positions of the first and last cells of the word
+// that includes pos along direction dir.
 func (p *Puzzle) WordExtents(pos Coord, dir Direction) (Coord, Coord) {
 	start, end := p.WordExtent(pos, dir.Opposite()), p.WordExtent(pos, dir)
 	if start.X > end.X || start.Y > end.Y {
@@ -234,6 +265,8 @@ func (p *Puzzle) WordExtents(pos Coord, dir Direction) (Coord, Coord) {
 	return start, end
 }
 
+// NextWord returns the position of the first cell of the word after the one
+// that includes pos in direction dir, wrapping if necessary.
 func (p *Puzzle) NextWord(pos Coord, dir Direction) Coord {
 	end := p.WordExtent(pos, dir)
 	nextWordCell := p.NextCell(end, dir, true)
@@ -241,17 +274,23 @@ func (p *Puzzle) NextWord(pos Coord, dir Direction) Coord {
 	return nextWordStart
 }
 
-func (p *Puzzle) WordId(pos Coord, dir Direction) int {
-	return p.cellId[p.WordExtent(pos, dir.Opposite())]
+// WordID returns the ID number of the word that includes pos along direction
+// dir.
+func (p *Puzzle) WordID(pos Coord, dir Direction) int {
+	return p.cellID[p.WordExtent(pos, dir.Opposite())]
 }
 
+// WordStart returns the position of the cell with ID id if valid and whether
+// id is valid.
 func (p *Puzzle) WordStart(id int) (Coord, bool) {
 	pos, ok := p.idCell[id]
 	return pos, ok
 }
 
+// Clue returns the clue for the word that contains pos in direction dir, or an
+// empty string if invalid.
 func (p *Puzzle) Clue(pos Coord, dir Direction) string {
-	id := p.WordId(pos, dir)
+	id := p.WordID(pos, dir)
 	clue := ""
 	if num, ok := p.clueNum[dir][id]; ok && num >= 0 && num < len(p.Clues) {
 		clue = p.Clues[num]
@@ -259,6 +298,7 @@ func (p *Puzzle) Clue(pos Coord, dir Direction) string {
 	return clue
 }
 
+// Setup initializes the puzzle.
 func (p *Puzzle) Setup() {
 	id := 1
 	cnum := 0
@@ -272,9 +312,9 @@ func (p *Puzzle) Setup() {
 			for _, dir := range []Direction{Right, Down} {
 				start, end := p.WordExtents(pos, dir)
 				if start == pos && end != pos {
-					cid, seen := p.cellId[pos]
+					cid, seen := p.cellID[pos]
 					if !seen {
-						p.cellId[pos] = id
+						p.cellID[pos] = id
 						p.idCell[id] = pos
 						cid = id
 						id++
@@ -287,6 +327,64 @@ func (p *Puzzle) Setup() {
 	}
 }
 
+// Verify returns whether the working grid matches the solition.
 func (p *Puzzle) Verify() bool {
 	return bytes.Equal(p.elts, p.solution.elts)
+}
+
+// BaseCksum calculates base checksum
+func (p *Puzzle) BaseCksum() uint16 {
+	buf := bytes.NewBuffer([]byte{})
+	binary.Write(buf, binary.LittleEndian, p.Header.Width)
+	binary.Write(buf, binary.LittleEndian, p.Header.Height)
+	binary.Write(buf, binary.LittleEndian, p.Header.NumClues)
+	binary.Write(buf, binary.LittleEndian, p.Header.BitMask1)
+	binary.Write(buf, binary.LittleEndian, p.Header.BitMask2)
+	return calcCksum(buf.Bytes(), 0)
+}
+
+// TextCksum calculates checksum of text fields
+func (p *Puzzle) TextCksum(cksum uint16) uint16 {
+	cksum = calcCksum([]byte(p.encodeString(p.Title+"\x00")), cksum)
+	cksum = calcCksum([]byte(p.encodeString(p.Author+"\x00")), cksum)
+	cksum = calcCksum([]byte(p.encodeString(p.Copyright+"\x00")), cksum)
+	for _, clue := range p.Clues {
+		cksum = calcCksum([]byte(p.encodeString(clue)), cksum)
+	}
+	cksum = calcCksum([]byte(p.encodeString(p.Notes+"\x00")), cksum)
+	return cksum
+}
+
+// Cksum calculates full checksum
+func (p *Puzzle) Cksum() uint16 {
+	cksum := p.BaseCksum()
+	cksum = calcCksum(p.solution.elts, cksum)
+	cksum = calcCksum(p.elts, cksum)
+	if string(p.Header.Version[:]) >= "1.3" {
+		cksum = p.TextCksum(cksum)
+	}
+	return cksum
+}
+
+// MaskedCksum calculates masked checksum
+func (p *Puzzle) MaskedCksum() [8]byte {
+	cksum := [8]byte{}
+	for i, cs := range []uint16{
+		p.BaseCksum(),
+		calcCksum(p.solution.elts, 0),
+		calcCksum(p.elts, 0),
+		p.TextCksum(0),
+	} {
+		cksum[i] = byte(cs) ^ CksumMagic[i]
+		cksum[i+4] = byte(cs>>8) ^ CksumMagic[i+4]
+	}
+	return cksum
+}
+
+func calcCksum(data []byte, cksum uint16) uint16 {
+	for _, b := range data {
+		cksum = (cksum >> 1) | ((cksum & 1) << 15)
+		cksum += uint16(b)
+	}
+	return cksum
 }
