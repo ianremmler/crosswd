@@ -30,12 +30,14 @@ var (
 	loc         crosswd.Coord
 	dir         = crosswd.Right
 	count       = 0
+	cheat       = false
 	notice      string
 	filename    string
 	normalStyle = style{termbox.ColorBlack, termbox.ColorWhite}
 	selectStyle = style{termbox.ColorWhite, termbox.ColorBlue}
 	editStyle   = style{termbox.ColorWhite, termbox.ColorRed}
 	solvedStyle = style{termbox.ColorWhite, termbox.ColorGreen}
+	cheatColor  = termbox.ColorYellow
 )
 
 func draw() {
@@ -57,6 +59,16 @@ func draw() {
 			sty := baseStyle
 			if x >= start.X && x <= end.X && y >= start.Y && y <= end.Y {
 				sty = wordStyle
+			}
+			if cheat {
+				sc, _ := cw.Solution.At(crosswd.Coord{x, y})
+				if c != crosswd.Empty && c != sc {
+					if sty == normalStyle {
+						sty.bg = cheatColor
+					} else {
+						sty.fg = cheatColor
+					}
+				}
 			}
 			switch c {
 			case crosswd.Empty:
@@ -182,6 +194,13 @@ func handleKeyEvent(evt *termbox.Event) bool {
 			})
 		case 's':
 			save()
+		case 'C':
+			if count == 1053 {
+				cw.Solve()
+				cheat = false
+			} else {
+				cheat = !cheat
+			}
 		}
 	case editMode:
 		switch evt.Key {

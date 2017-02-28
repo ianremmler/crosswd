@@ -147,7 +147,7 @@ type Header struct {
 type Puzzle struct {
 	Header Header
 	*Grid
-	solution  *Grid
+	Solution  *Grid
 	Title     string
 	Author    string
 	Copyright string
@@ -182,8 +182,8 @@ func (p *Puzzle) Read(r io.Reader) error {
 		return errors.New("invalid magic value in file")
 	}
 	width, height := int(p.Header.Width), int(p.Header.Height)
-	p.solution = NewGrid(width, height)
-	if _, err := io.ReadFull(r, p.solution.elts); err != nil {
+	p.Solution = NewGrid(width, height)
+	if _, err := io.ReadFull(r, p.Solution.elts); err != nil {
 		return err
 	}
 	p.Grid = NewGrid(width, height)
@@ -225,7 +225,7 @@ func (p *Puzzle) Write(w io.Writer) error {
 	if err := binary.Write(w, binary.LittleEndian, p.Header); err != nil {
 		return err
 	}
-	if _, err := w.Write(p.solution.elts); err != nil {
+	if _, err := w.Write(p.Solution.elts); err != nil {
 		return err
 	}
 	if _, err := w.Write(p.elts); err != nil {
@@ -374,7 +374,12 @@ func (p *Puzzle) Setup() {
 
 // Verify returns whether the working grid matches the solition.
 func (p *Puzzle) Verify() bool {
-	return bytes.Equal(p.elts, p.solution.elts)
+	return bytes.Equal(p.elts, p.Solution.elts)
+}
+
+// Solve fills the working grid with the solution
+func (p *Puzzle) Solve() {
+	copy(p.elts, p.Solution.elts)
 }
 
 // HeaderCksum calculates base checksum
@@ -413,7 +418,7 @@ func (p *Puzzle) TextCksum(cksum uint16) uint16 {
 // Cksum calculates full checksum
 func (p *Puzzle) Cksum() uint16 {
 	cksum := p.HeaderCksum()
-	cksum = calcCksum(p.solution.elts, cksum)
+	cksum = calcCksum(p.Solution.elts, cksum)
 	cksum = calcCksum(p.elts, cksum)
 	cksum = p.TextCksum(cksum)
 	return cksum
@@ -424,7 +429,7 @@ func (p *Puzzle) MagicCksum() [8]byte {
 	cksum := [8]byte{}
 	for i, cs := range []uint16{
 		p.HeaderCksum(),
-		calcCksum(p.solution.elts, 0),
+		calcCksum(p.Solution.elts, 0),
 		calcCksum(p.elts, 0),
 		p.TextCksum(0),
 	} {
