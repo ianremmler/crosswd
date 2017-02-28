@@ -29,6 +29,7 @@ var (
 	mode        = normalMode
 	loc         crosswd.Coord
 	dir         = crosswd.Right
+	modified    = false
 	count       = 0
 	cheat       = false
 	notice      string
@@ -42,7 +43,6 @@ var (
 
 func draw() {
 	termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
-	start, end := cw.WordExtents(loc, dir)
 	wordStyle := selectStyle
 	if mode == editMode {
 		wordStyle = editStyle
@@ -51,8 +51,10 @@ func draw() {
 	if cw.Verify() {
 		baseStyle = solvedStyle
 	}
+	start, end := cw.WordExtents(loc, dir)
 	sz := cw.Size()
 
+	// grid
 	for y := 0; y < sz.Y; y++ {
 		for x := 0; x < sz.X; x++ {
 			c, _ := cw.At(crosswd.Coord{x, y})
@@ -81,12 +83,29 @@ func draw() {
 		}
 	}
 
+	// puzzle info
 	for y, s := range []string{cw.Title, cw.Author, cw.Copyright} {
 		for x, r := range s {
-			termbox.SetCell(sz.X+x+3, y+1, r, termbox.ColorDefault, termbox.ColorDefault)
+			termbox.SetCell(sz.X+3+x, y+1, r, termbox.ColorDefault, termbox.ColorDefault)
 		}
 	}
 
+	// status info
+	var status []string
+	if len(notice) > 0 {
+		status = append(status, notice)
+	}
+	if modified {
+		status = append(status, "[+]")
+	}
+	if count != 0 {
+		status = append(status, strconv.Itoa(count))
+	}
+	for x, r := range strings.Join(status, " ") {
+		termbox.SetCell(sz.X+3+x, sz.Y, r, termbox.ColorDefault, termbox.ColorDefault)
+	}
+
+	// clue
 	id := cw.WordID(loc, dir)
 	clue := cw.Clue(loc, dir)
 	dirc := 'A'
@@ -98,30 +117,23 @@ func draw() {
 		wordLen = end.Y - start.Y + 1
 	}
 	for x, r := range fmt.Sprintf("%d%c(%d): %s", id, dirc, wordLen, clue) {
-		termbox.SetCell(sz.X+x+3, sz.Y, r, termbox.ColorDefault, termbox.ColorDefault)
-	}
-	str := notice
-	if str == "" && count > 0 {
-		str = strconv.Itoa(count)
-	}
-	for x, r := range str {
-		termbox.SetCell(sz.X+x+3, sz.Y-2, r, termbox.ColorDefault, termbox.ColorDefault)
+		termbox.SetCell(x+1, sz.Y+2, r, termbox.ColorDefault, termbox.ColorDefault)
 	}
 
+	// notes
 	width, _ := termbox.Size()
 	var notes []string
 	for _, para := range strings.Split(cw.Notes, "\n") {
 		notes = append(notes, wrapText(strings.TrimSpace(para), width-2))
 	}
 	noteText := strings.Join(notes, "\n")
-
 	x, y := 0, 0
 	for _, r := range noteText {
 		if r == '\n' {
 			x = 0
 			y++
 		} else {
-			termbox.SetCell(x+1, sz.Y+y+2, r, termbox.ColorDefault, termbox.ColorDefault)
+			termbox.SetCell(x+1, sz.Y+4+y, r, termbox.ColorDefault, termbox.ColorDefault)
 			x++
 		}
 	}
@@ -138,6 +150,10 @@ func handleKeyEvent(evt *termbox.Event) bool {
 		mode = normalMode
 	case termbox.KeyTab:
 		toggleDir()
+	case termbox.KeySpace:
+		countDo(func() {
+			loc = cw.NextCell(loc, dir, true)
+		})
 	case termbox.KeyCtrlN:
 		countDo(func() {
 			loc = cw.NextWord(loc, dir)
@@ -176,13 +192,13 @@ func handleKeyEvent(evt *termbox.Event) bool {
 			}
 		case 'x':
 			countDo(func() {
-				cw.Set(loc, crosswd.Empty)
+				set(crosswd.Empty)
 				loc = cw.NextCell(loc, dir, true)
 			})
 		case 'X':
 			countDo(func() {
 				loc = cw.NextCell(loc, dir.Opposite(), true)
-				cw.Set(loc, crosswd.Empty)
+				set(crosswd.Empty)
 			})
 		case 'w':
 			countDo(func() {
@@ -205,17 +221,17 @@ func handleKeyEvent(evt *termbox.Event) bool {
 	case editMode:
 		switch evt.Key {
 		case termbox.KeyDelete:
-			cw.Set(loc, crosswd.Empty)
+			set(crosswd.Empty)
 			loc = cw.NextCell(loc, dir, true)
 			return true
 		case termbox.KeyBackspace, termbox.KeyBackspace2:
 			loc = cw.NextCell(loc, dir.Opposite(), true)
-			cw.Set(loc, crosswd.Empty)
+			set(crosswd.Empty)
 			return true
 		}
 		r := unicode.ToUpper(evt.Ch)
 		if r >= 'A' && r <= 'Z' {
-			cw.Set(loc, byte(r))
+			set(byte(r))
 			loc = cw.NextCell(loc, dir, true)
 		}
 	}
@@ -326,5 +342,15 @@ func save() error {
 		return err
 	}
 	defer out.Close()
-	return cw.Write(out)
+	err = cw.Write(out)
+	if err == nil {
+		modified = false
+	}
+	return err
+}
+
+func set(c byte) {
+	if cw.Set(loc, c) {
+		modified = true
+	}
 }
