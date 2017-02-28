@@ -147,6 +147,7 @@ type Puzzle struct {
 	Notes     string
 	Extra     []byte
 
+	Message string
 	cellID  map[Coord]int
 	idCell  map[int]Coord
 	clueNum map[Direction]map[int]int
@@ -200,13 +201,11 @@ func (p *Puzzle) Read(r io.Reader) error {
 		p.Extra = []byte(inFields[len(inFields)-1])
 	}
 	if p.HeaderCksum() != p.Header.HeaderCksum {
-		return errors.New("base checksum does not match")
-	}
-	if p.MagicCksum() != p.Header.MagicCksum {
-		return errors.New("magic checksum does not match")
-	}
-	if p.Cksum() != p.Header.Cksum {
-		return errors.New("global checksum does not match")
+		p.Message = "base checksum does not match\n"
+	} else if p.MagicCksum() != p.Header.MagicCksum {
+		p.Message = "magic checksum does not match\n"
+	} else if p.Cksum() != p.Header.Cksum {
+		p.Message = "global checksum does not match\n"
 	}
 	return nil
 }

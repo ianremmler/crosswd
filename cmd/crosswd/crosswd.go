@@ -87,10 +87,12 @@ func draw() {
 	for x, r := range fmt.Sprintf("%d%c(%d): %s", id, dirc, wordLen, clue) {
 		termbox.SetCell(sz.X+x+3, sz.Y, r, termbox.ColorDefault, termbox.ColorDefault)
 	}
-	if count > 0 {
-		for x, r := range strconv.Itoa(count) {
-			termbox.SetCell(sz.X+x+3, sz.Y-2, r, termbox.ColorDefault, termbox.ColorDefault)
-		}
+	str := cw.Message
+	if str == "" && count > 0 {
+		str = strconv.Itoa(count)
+	}
+	for x, r := range str {
+		termbox.SetCell(sz.X+x+3, sz.Y-2, r, termbox.ColorDefault, termbox.ColorDefault)
 	}
 
 	width, _ := termbox.Size()
@@ -116,6 +118,7 @@ func draw() {
 }
 
 func handleKeyEvent(evt *termbox.Event) bool {
+	cw.Message = ""
 	handled := true
 	switch evt.Key {
 	case termbox.KeyEsc:
@@ -135,10 +138,12 @@ func handleKeyEvent(evt *termbox.Event) bool {
 	resetCount := true
 	switch mode {
 	case normalMode:
-		switch evt.Ch {
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		if evt.Ch >= '0' && evt.Ch <= '9' {
 			count = count*10 + (int(evt.Ch) - '0')
 			resetCount = false
+			break
+		}
+		switch evt.Ch {
 		case 'i':
 			mode = editMode
 		case 'q':
@@ -256,6 +261,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer termbox.Close()
+
 	run()
 	save()
 }
