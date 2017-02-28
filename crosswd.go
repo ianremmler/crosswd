@@ -103,7 +103,7 @@ func (g *Grid) Size() Coord {
 	if len(g.cells) == 0 {
 		return Coord{}
 	}
-	return Coord{len(g.cells), len(g.cells[0])}
+	return Coord{len(g.cells[0]), len(g.cells)}
 }
 
 // Valid returns whether a point is within the grid range.
