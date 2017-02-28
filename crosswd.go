@@ -20,6 +20,14 @@ const (
 	Empty      = '-'
 )
 
+// Warning is a custom error type for warnings
+type Warning struct {
+	msg string
+}
+
+// Error implements the error interface
+func (e Warning) Error() string { return e.msg }
+
 // Direction is a relative direction.
 type Direction int
 
@@ -147,7 +155,6 @@ type Puzzle struct {
 	Notes     string
 	Extra     []byte
 
-	Message string
 	cellID  map[Coord]int
 	idCell  map[int]Coord
 	clueNum map[Direction]map[int]int
@@ -201,12 +208,10 @@ func (p *Puzzle) Read(r io.Reader) error {
 	if len(inFields) > len(outFields) {
 		p.Extra = []byte(inFields[len(inFields)-1])
 	}
-	if p.HeaderCksum() != p.Header.HeaderCksum {
-		p.Message = "base checksum does not match\n"
-	} else if p.MagicCksum() != p.Header.MagicCksum {
-		p.Message = "magic checksum does not match\n"
-	} else if p.Cksum() != p.Header.Cksum {
-		p.Message = "global checksum does not match\n"
+	if p.Cksum() != p.Header.Cksum || p.MagicCksum() != p.Header.MagicCksum ||
+		p.HeaderCksum() != p.Header.HeaderCksum {
+
+		return Warning{"file ckecksum does not match"}
 	}
 	return nil
 }

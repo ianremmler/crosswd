@@ -30,6 +30,7 @@ var (
 	loc         crosswd.Coord
 	dir         = crosswd.Right
 	count       = 0
+	notice      string
 	filename    string
 	normalStyle = style{termbox.ColorBlack, termbox.ColorWhite}
 	selectStyle = style{termbox.ColorWhite, termbox.ColorBlue}
@@ -87,7 +88,7 @@ func draw() {
 	for x, r := range fmt.Sprintf("%d%c(%d): %s", id, dirc, wordLen, clue) {
 		termbox.SetCell(sz.X+x+3, sz.Y, r, termbox.ColorDefault, termbox.ColorDefault)
 	}
-	str := cw.Message
+	str := notice
 	if str == "" && count > 0 {
 		str = strconv.Itoa(count)
 	}
@@ -118,7 +119,7 @@ func draw() {
 }
 
 func handleKeyEvent(evt *termbox.Event) bool {
-	cw.Message = ""
+	notice = ""
 	handled := true
 	switch evt.Key {
 	case termbox.KeyEsc:
@@ -263,7 +264,12 @@ func main() {
 	defer in.Close()
 	cw = crosswd.New()
 	if err := cw.Read(in); err != nil {
-		log.Fatal(err)
+		switch err.(type) {
+		case crosswd.Warning:
+			notice = fmt.Sprintf("[Note: %s]", err)
+		default:
+			log.Fatal(err)
+		}
 	}
 	cw.Setup()
 	loc = cw.NextCell(crosswd.Coord{-1, 0}, dir, true)
