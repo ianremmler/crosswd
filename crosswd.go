@@ -122,8 +122,8 @@ func (g *Grid) Set(p Coord, c byte) bool {
 type Header struct {
 	Cksum       uint16
 	Magic       [len(Magic)]byte
-	BaseCksum   uint16
-	MaskedCksum [8]byte
+	HeaderCksum uint16
+	MagicCksum  [8]byte
 	Version     [4]byte
 	Unused      [2]byte
 	Unknown     [2]byte
@@ -169,7 +169,7 @@ func (p *Puzzle) Read(r io.Reader) error {
 		return err
 	}
 	if string(p.Header.Magic[:]) != Magic {
-		return errors.New("invalid magic")
+		return errors.New("invalid magic value in file")
 	}
 	width, height := int(p.Header.Width), int(p.Header.Height)
 	p.solution = NewGrid(width, height)
@@ -199,16 +199,22 @@ func (p *Puzzle) Read(r io.Reader) error {
 	if len(inFields) > len(outFields) {
 		p.Extra = []byte(inFields[len(inFields)-1])
 	}
+	if p.HeaderCksum() != p.Header.HeaderCksum {
+		return errors.New("base checksum does not match")
+	}
+	if p.MagicCksum() != p.Header.MagicCksum {
+		return errors.New("magic checksum does not match")
+	}
 	if p.Cksum() != p.Header.Cksum {
-		return errors.New("checksum does not match")
+		return errors.New("global checksum does not match")
 	}
 	return nil
 }
 
 // Write writes crossword data in .puz format
 func (p *Puzzle) Write(w io.Writer) error {
-	p.Header.BaseCksum = p.BaseCksum()
-	p.Header.MaskedCksum = p.MaskedCksum()
+	p.Header.HeaderCksum = p.HeaderCksum()
+	p.Header.MagicCksum = p.MagicCksum()
 	p.Header.Cksum = p.Cksum()
 
 	if err := binary.Write(w, binary.LittleEndian, p.Header); err != nil {
@@ -366,8 +372,8 @@ func (p *Puzzle) Verify() bool {
 	return bytes.Equal(p.elts, p.solution.elts)
 }
 
-// BaseCksum calculates base checksum
-func (p *Puzzle) BaseCksum() uint16 {
+// HeaderCksum calculates base checksum
+func (p *Puzzle) HeaderCksum() uint16 {
 	buf := bytes.NewBuffer([]byte{})
 	binary.Write(buf, binary.LittleEndian, p.Header.Width)
 	binary.Write(buf, binary.LittleEndian, p.Header.Height)
@@ -391,7 +397,7 @@ func (p *Puzzle) TextCksum(cksum uint16) uint16 {
 
 // Cksum calculates full checksum
 func (p *Puzzle) Cksum() uint16 {
-	cksum := p.BaseCksum()
+	cksum := p.HeaderCksum()
 	cksum = calcCksum(p.solution.elts, cksum)
 	cksum = calcCksum(p.elts, cksum)
 	if string(p.Header.Version[:]) >= "1.3" {
@@ -400,11 +406,11 @@ func (p *Puzzle) Cksum() uint16 {
 	return cksum
 }
 
-// MaskedCksum calculates masked checksum
-func (p *Puzzle) MaskedCksum() [8]byte {
+// MagicCksum calculates magic checksum
+func (p *Puzzle) MagicCksum() [8]byte {
 	cksum := [8]byte{}
 	for i, cs := range []uint16{
-		p.BaseCksum(),
+		p.HeaderCksum(),
 		calcCksum(p.solution.elts, 0),
 		calcCksum(p.elts, 0),
 		p.TextCksum(0),
@@ -425,8 +431,7 @@ func (p *Puzzle) encode(str string) []byte {
 
 func calcCksum(data []byte, cksum uint16) uint16 {
 	for _, b := range data {
-		cksum = (cksum >> 1) | ((cksum & 1) << 15)
-		cksum += uint16(b)
+		cksum = (cksum >> 1) | ((cksum & 1) << 15) + uint16(b)
 	}
 	return cksum
 }
