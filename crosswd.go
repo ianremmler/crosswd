@@ -152,6 +152,7 @@ type Puzzle struct {
 	idCell  map[int]Coord
 	clueNum map[Direction]map[int]int
 	enc     *encoding.Encoder
+	dec     *encoding.Decoder
 }
 
 // New creates a Puzzle instance
@@ -161,6 +162,7 @@ func New() *Puzzle {
 		idCell:  map[int]Coord{},
 		clueNum: map[Direction]map[int]int{Right: {}, Down: {}},
 		enc:     charmap.ISO8859_1.NewEncoder(),
+		dec:     charmap.ISO8859_1.NewDecoder(),
 	}
 }
 
@@ -185,18 +187,17 @@ func (p *Puzzle) Read(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	dec := charmap.ISO8859_1.NewDecoder()
 	inFields := strings.SplitN(string(rest), "\x00", int(5+p.Header.NumClues))
 	outFields := make([]string, 4+p.Header.NumClues)
 	copy(outFields, inFields)
-	p.Title, _ = dec.String(outFields[0])
-	p.Author, _ = dec.String(outFields[1])
-	p.Copyright, _ = dec.String(outFields[2])
+	p.Title, _ = p.dec.String(outFields[0])
+	p.Author, _ = p.dec.String(outFields[1])
+	p.Copyright, _ = p.dec.String(outFields[2])
 	for i := 0; i < int(p.Header.NumClues); i++ {
-		clue, _ := dec.String(outFields[3+i])
+		clue, _ := p.dec.String(outFields[3+i])
 		p.Clues = append(p.Clues, clue)
 	}
-	p.Notes, _ = dec.String(outFields[3+p.Header.NumClues])
+	p.Notes, _ = p.dec.String(outFields[3+p.Header.NumClues])
 	if len(inFields) > len(outFields) {
 		p.Extra = []byte(inFields[len(inFields)-1])
 	}
@@ -384,13 +385,23 @@ func (p *Puzzle) HeaderCksum() uint16 {
 
 // TextCksum calculates checksum of text fields
 func (p *Puzzle) TextCksum(cksum uint16) uint16 {
-	cksum = calcCksum(p.encode(p.Title+"\x00"), cksum)
-	cksum = calcCksum(p.encode(p.Author+"\x00"), cksum)
-	cksum = calcCksum(p.encode(p.Copyright+"\x00"), cksum)
+	if len(p.Title) > 0 {
+		cksum = calcCksum(p.encode(p.Title+"\x00"), cksum)
+	}
+	if len(p.Author) > 0 {
+		cksum = calcCksum(p.encode(p.Author+"\x00"), cksum)
+	}
+	if len(p.Copyright) > 0 {
+		cksum = calcCksum(p.encode(p.Copyright+"\x00"), cksum)
+	}
 	for _, clue := range p.Clues {
 		cksum = calcCksum(p.encode(clue), cksum)
 	}
-	cksum = calcCksum(p.encode(p.Notes+"\x00"), cksum)
+	if string(p.Header.Version[:]) >= "1.3" {
+		if len(p.Notes) > 0 {
+			cksum = calcCksum(p.encode(p.Notes+"\x00"), cksum)
+		}
+	}
 	return cksum
 }
 
@@ -399,9 +410,7 @@ func (p *Puzzle) Cksum() uint16 {
 	cksum := p.HeaderCksum()
 	cksum = calcCksum(p.solution.elts, cksum)
 	cksum = calcCksum(p.elts, cksum)
-	if string(p.Header.Version[:]) >= "1.3" {
-		cksum = p.TextCksum(cksum)
-	}
+	cksum = p.TextCksum(cksum)
 	return cksum
 }
 

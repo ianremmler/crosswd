@@ -126,7 +126,9 @@ func handleKeyEvent(evt *termbox.Event) bool {
 	case termbox.KeyTab:
 		toggleDir()
 	case termbox.KeyCtrlN:
-		do(func() { loc = cw.NextWord(loc, dir) })
+		countDo(func() {
+			loc = cw.NextWord(loc, dir)
+		})
 	case termbox.KeyCtrlP:
 		loc = cw.NextWord(loc, dir.Opposite())
 	default:
@@ -147,28 +149,37 @@ func handleKeyEvent(evt *termbox.Event) bool {
 		case 'i':
 			mode = editMode
 		case 'q':
+			save()
+			mode = quitMode
+		case 'Q':
 			mode = quitMode
 		case 'h', 'j', 'k', 'l':
-			do(func() { loc = cw.NextCell(loc, keyToDir(evt.Ch), true) })
+			countDo(func() {
+				loc = cw.NextCell(loc, keyToDir(evt.Ch), true)
+			})
 		case 'G':
 			if pos, ok := cw.WordStart(count); ok {
 				loc = pos
 			}
 		case 'x':
-			do(func() {
+			countDo(func() {
 				cw.Set(loc, crosswd.Empty)
 				loc = cw.NextCell(loc, dir, true)
 			})
 		case 'X':
-			do(func() {
+			countDo(func() {
 				loc = cw.NextCell(loc, dir.Opposite(), true)
 				cw.Set(loc, crosswd.Empty)
 			})
 		case 'w':
-			loc = cw.NextWord(loc, dir)
+			countDo(func() {
+				loc = cw.NextWord(loc, dir)
+			})
 		case 'W':
-			loc = cw.NextWord(loc, dir.Opposite())
-		case 'Z':
+			countDo(func() {
+				loc = cw.NextWord(loc, dir.Opposite())
+			})
+		case 's':
 			save()
 		}
 	case editMode:
@@ -213,7 +224,7 @@ func toggleDir() {
 	}
 }
 
-func do(f func()) {
+func countDo(f func()) {
 	if count == 0 {
 		count = 1
 	}
@@ -263,7 +274,6 @@ func main() {
 	defer termbox.Close()
 
 	run()
-	save()
 }
 
 func wrapText(text string, width int) string {
