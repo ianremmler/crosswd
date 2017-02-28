@@ -1,3 +1,5 @@
+// Package crosswd provides a base for implementing crossword applications
+// using data in the .puz format.
 package crosswd
 
 import (
@@ -384,7 +386,7 @@ func (p *Puzzle) Solve() {
 
 // HeaderCksum calculates base checksum
 func (p *Puzzle) HeaderCksum() uint16 {
-	buf := bytes.NewBuffer([]byte{})
+	buf := &bytes.Buffer{}
 	binary.Write(buf, binary.LittleEndian, p.Header.Width)
 	binary.Write(buf, binary.LittleEndian, p.Header.Height)
 	binary.Write(buf, binary.LittleEndian, p.Header.NumClues)
