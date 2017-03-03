@@ -37,7 +37,7 @@ var (
 	normalStyle = style{termbox.ColorBlack, termbox.ColorWhite}
 	selectStyle = style{termbox.ColorWhite, termbox.ColorBlue}
 	editStyle   = style{termbox.ColorWhite, termbox.ColorRed}
-	solvedStyle = style{termbox.ColorWhite, termbox.ColorGreen}
+	solvedStyle = style{termbox.ColorBlack, termbox.ColorGreen}
 	cheatColor  = termbox.ColorYellow
 )
 
